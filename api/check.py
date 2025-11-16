@@ -6,29 +6,8 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 
-LOG_FILE = "/tmp/was_available.txt"
-
-def read_log():
-    """Читает состояние наличия товара из файла."""
-    try:
-        with open(LOG_FILE, "r") as f:
-            value = f.read().strip().lower()
-            return value == "true"
-    except FileNotFoundError:
-        return False
-    except Exception as e:
-        print(f"Ошибка чтения файла {LOG_FILE}: {e}")
-        return False
-
-def write_log(value):
-    """Записывает состояние наличия товара в файл."""
-    try:
-        with open(LOG_FILE, "w") as f:
-            f.write("true" if value else "false")
-    except Exception as e:
-        print(f"Ошибка записи файла {LOG_FILE}: {e}")
-
-def send_email(product_url):
+def send_email(product_url, status_text):
+    """Отправляет email уведомление о появлении товара"""
     EMAIL_FROM = os.environ.get("EMAIL_FROM")
     EMAIL_TO = os.environ.get("EMAIL_TO")
     EMAIL_PASS = os.environ.get("EMAIL_PASS")
@@ -37,8 +16,8 @@ def send_email(product_url):
         print("Email переменные окружения не заданы!")
         return
 
-    msg = MIMEText(f"Товар появился на Kaspi:\n{product_url}")
-    msg["Subject"] = "Kaspi Checker: Товар в наличии!"
+    msg = MIMEText(f"Товар появился на Kaspi!\n\nСтатус: {status_text}\n\nСсылка: {product_url}")
+    msg["Subject"] = "🔔 Kaspi: Товар в наличии!"
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
 
@@ -46,14 +25,15 @@ def send_email(product_url):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_PASS)
             server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        print("Email отправлен!")
+        print("✅ Email отправлен!")
     except Exception as e:
-        print(f"Ошибка при отправке email: {e}")
+        print(f"❌ Ошибка при отправке email: {e}")
 
 def check_availability():
+    """Проверяет наличие товара на Kaspi через ScraperAPI"""
     product_url = "https://kaspi.kz/shop/p/ehrmann-puding-vanil-bezlaktoznyi-1-5-200-g-102110634/?c=750000000"
     SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
-    DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+    SEND_EMAIL_ALWAYS = os.environ.get("SEND_EMAIL_ALWAYS", "false").lower() == "true"
 
     if not SCRAPER_API_KEY:
         return {"error": "SCRAPER_API_KEY не задан!"}
@@ -67,11 +47,11 @@ def check_availability():
     except Exception as e:
         return {"error": f"Ошибка при запросе: {e}"}
 
-    # Парсим наличие товара - используем meta теги и JSON-LD
+    # Парсим наличие товара через meta теги и JSON-LD
     availability_text = ""
     available = False
     
-    # Способ 1: Проверяем meta тег product:availability
+    # Способ 1: Проверяем meta тег product:availability (самый надёжный)
     meta_availability = soup.find("meta", property="product:availability")
     if meta_availability:
         content = meta_availability.get("content", "").lower()
@@ -107,35 +87,23 @@ def check_availability():
                     available = False
                     availability_text = "stock: 0"
                 elif '"stock":' in script.string:
-                    # Есть stock > 0
                     available = True
                     availability_text = "stock > 0"
                 break
-    
-    was_available = read_log()
 
-    if available and not was_available:
-        send_email(product_url)
-        write_log(True)
-    elif not available and was_available:
-        write_log(False)
+    # Отправляем email если товар появился в наличии
+    if available or SEND_EMAIL_ALWAYS:
+        send_email(product_url, availability_text)
 
-    result = {
+    return {
         "available": available,
-        "was_available": was_available,
-        "statusText": availability_text
+        "statusText": availability_text,
+        "productUrl": product_url
     }
-    
-    # Добавляем debug информацию если включен DEBUG режим
-    if DEBUG:
-        result["debug"] = {
-            "html_length": len(r.text),
-            "html_preview": r.text[:500]
-        }
-    
-    return result
 
 class handler(BaseHTTPRequestHandler):
+    """Vercel serverless function handler"""
+    
     def do_GET(self):
         try:
             result = check_availability()
