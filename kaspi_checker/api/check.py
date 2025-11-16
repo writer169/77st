@@ -1,105 +1,71 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "f3aa28ea-fb84-4d0c-8c49-82aea1c3bf75",
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import os\n",
-    "import requests\n",
-    "from bs4 import BeautifulSoup\n",
-    "import smtplib\n",
-    "from email.mime.text import MIMEText\n",
-    "from vercel_kv import KV\n",
-    "from fastapi import FastAPI\n",
-    "\n",
-    "# KV клиент\n",
-    "KV_NAMESPACE = os.environ.get(\"KV_NAMESPACE\")\n",
-    "kv = KV(namespace=KV_NAMESPACE)\n",
-    "\n",
-    "def send_email(product_url):\n",
-    "    EMAIL_FROM = os.environ.get(\"EMAIL_FROM\")\n",
-    "    EMAIL_TO = os.environ.get(\"EMAIL_TO\")\n",
-    "    EMAIL_PASS = os.environ.get(\"EMAIL_PASS\")\n",
-    "\n",
-    "    msg = MIMEText(f\"Товар теперь в наличии:\\n{product_url}\")\n",
-    "    msg[\"Subject\"] = \"Товар появился на Kaspi!\"\n",
-    "    msg[\"From\"] = EMAIL_FROM\n",
-    "    msg[\"To\"] = EMAIL_TO\n",
-    "\n",
-    "    with smtplib.SMTP_SSL(\"smtp.gmail.com\", 465) as server:\n",
-    "        server.login(EMAIL_FROM, EMAIL_PASS)\n",
-    "        server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())\n",
-    "\n",
-    "def handler():\n",
-    "    product_url = \"https://kaspi.kz/shop/p/ehrmann-puding-vanil-bezlaktoznyi-1-5-200-g-102110634/?c=750000000\"\n",
-    "    SCRAPER_API_KEY = os.environ.get(\"SCRAPER_API_KEY\")\n",
-    "\n",
-    "    scraper_url = f\"https://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={product_url}\"\n",
-    "\n",
-    "    r = requests.get(scraper_url)\n",
-    "    soup = BeautifulSoup(r.text, \"html.parser\")\n",
-    "\n",
-    "    # Проверка наличия\n",
-    "    availability_text = \"\"\n",
-    "    el = soup.select_one(\"div.product__header .status\")\n",
-    "    if el:\n",
-    "        availability_text = el.get_text(strip=True).lower()\n",
-    "    else:\n",
-    "        el2 = soup.select_one(\".sellers-table__in-stock\")\n",
-    "        if el2:\n",
-    "            availability_text = el2.get_text(strip=True).lower()\n",
-    "\n",
-    "    available = any(x in availability_text for x in [\"в наличии\", \"есть\", \"доступно\"])\n",
-    "\n",
-    "    # Читаем лог из KV\n",
-    "    was_available = kv.get(\"was_available\")\n",
-    "    if was_available is None:\n",
-    "        was_available = False\n",
-    "\n",
-    "    # Email только если появился впервые\n",
-    "    if available and not was_available:\n",
-    "        send_email(product_url)\n",
-    "        kv.set(\"was_available\", True)\n",
-    "    elif not available and was_available:\n",
-    "        kv.set(\"was_available\", False)\n",
-    "\n",
-    "    return {\n",
-    "        \"available\": available,\n",
-    "        \"was_available\": was_available,\n",
-    "        \"statusText\": availability_text\n",
-    "    }\n",
-    "\n",
-    "# FastAPI app для Vercel\n",
-    "app = FastAPI()\n",
-    "\n",
-    "@app.get(\"/api/check\")\n",
-    "def check_api():\n",
-    "    return handler()\n"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.14.0"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+import os
+import requests
+from bs4 import BeautifulSoup
+import smtplib
+from email.mime.text import MIMEText
+from vercel_kv import KV
+from fastapi import FastAPI
+
+# KV клиент
+KV_NAMESPACE = os.environ.get("KV_NAMESPACE")
+kv = KV(namespace=KV_NAMESPACE)
+
+def send_email(product_url):
+    EMAIL_FROM = os.environ.get("EMAIL_FROM")
+    EMAIL_TO = os.environ.get("EMAIL_TO")
+    EMAIL_PASS = os.environ.get("EMAIL_PASS")
+
+    msg = MIMEText(f"Товар теперь в наличии:\n{product_url}")
+    msg["Subject"] = "Товар появился на Kaspi!"
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(EMAIL_FROM, EMAIL_PASS)
+        server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
+
+def handler():
+    product_url = "https://kaspi.kz/shop/p/ehrmann-puding-vanil-bezlaktoznyi-1-5-200-g-102110634/?c=750000000"
+    SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
+
+    scraper_url = f"https://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={product_url}"
+
+    r = requests.get(scraper_url)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # Проверка наличия
+    availability_text = ""
+    el = soup.select_one("div.product__header .status")
+    if el:
+        availability_text = el.get_text(strip=True).lower()
+    else:
+        el2 = soup.select_one(".sellers-table__in-stock")
+        if el2:
+            availability_text = el2.get_text(strip=True).lower()
+
+    available = any(x in availability_text for x in ["в наличии", "есть", "доступно"])
+
+    # Читаем лог из KV
+    was_available = kv.get("was_available")
+    if was_available is None:
+        was_available = False
+
+    # Email только если появился впервые
+    if available and not was_available:
+        send_email(product_url)
+        kv.set("was_available", True)
+    elif not available and was_available:
+        kv.set("was_available", False)
+
+    return {
+        "available": available,
+        "was_available": was_available,
+        "statusText": availability_text
+    }
+
+# FastAPI app для Vercel
+app = FastAPI()
+
+@app.get("/api/check")
+def check_api():
+    return handler()
