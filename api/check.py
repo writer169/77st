@@ -31,7 +31,7 @@ def send_email(product_url, status_text):
 
 def check_availability():
     """Проверяет наличие товара на Kaspi через ScraperAPI"""
-    product_url = "https://kaspi.kz/shop/p/ehrmann-puding-vanil-bezlaktoznyi-1-5-200-g-102110634/?c=750000000"
+    product_url = "https://kaspi.kz/shop/p/chehol-dlja-apple-iphone-15-pro-max-prozrachnyi-113308490/?c=750000000"
     SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
     SEND_EMAIL_ALWAYS = os.environ.get("SEND_EMAIL_ALWAYS", "false").lower() == "true"
 
