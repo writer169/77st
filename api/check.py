@@ -53,6 +53,7 @@ def send_email(product_url):
 def check_availability():
     product_url = "https://kaspi.kz/shop/p/ehrmann-puding-vanil-bezlaktoznyi-1-5-200-g-102110634/?c=750000000"
     SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
+    DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
     if not SCRAPER_API_KEY:
         return {"error": "SCRAPER_API_KEY не задан!"}
@@ -66,17 +67,51 @@ def check_availability():
     except Exception as e:
         return {"error": f"Ошибка при запросе: {e}"}
 
-    # Парсим наличие товара
+    # Парсим наличие товара - используем meta теги и JSON-LD
     availability_text = ""
-    el = soup.select_one("div.product__header .status")
-    if el:
-        availability_text = el.get_text(strip=True).lower()
-    else:
-        el2 = soup.select_one(".sellers-table__in-stock")
-        if el2:
-            availability_text = el2.get_text(strip=True).lower()
-
-    available = any(x in availability_text for x in ["в наличии", "есть", "доступно"])
+    available = False
+    
+    # Способ 1: Проверяем meta тег product:availability
+    meta_availability = soup.find("meta", property="product:availability")
+    if meta_availability:
+        content = meta_availability.get("content", "").lower()
+        availability_text = content
+        available = content == "in stock"
+    
+    # Способ 2: Парсим JSON-LD данные
+    if not availability_text:
+        scripts = soup.find_all("script", type="application/ld+json")
+        for script in scripts:
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, dict) and data.get("@type") == "Product":
+                    offers = data.get("offers", [])
+                    for offer in offers:
+                        if isinstance(offer, dict):
+                            avail = offer.get("availability", "")
+                            if "InStock" in avail or "in stock" in avail.lower():
+                                available = True
+                                availability_text = "in stock"
+                            elif "OutOfStock" in avail or "out of stock" in avail.lower():
+                                available = False
+                                availability_text = "out of stock"
+                            break
+            except:
+                continue
+    
+    # Способ 3: Ищем в digitalData (window.digitalData)
+    if not availability_text:
+        for script in soup.find_all("script"):
+            if script.string and "window.digitalData" in script.string:
+                if '"stock":0' in script.string or '"stock": 0' in script.string:
+                    available = False
+                    availability_text = "stock: 0"
+                elif '"stock":' in script.string:
+                    # Есть stock > 0
+                    available = True
+                    availability_text = "stock > 0"
+                break
+    
     was_available = read_log()
 
     if available and not was_available:
@@ -85,11 +120,20 @@ def check_availability():
     elif not available and was_available:
         write_log(False)
 
-    return {
+    result = {
         "available": available,
         "was_available": was_available,
         "statusText": availability_text
     }
+    
+    # Добавляем debug информацию если включен DEBUG режим
+    if DEBUG:
+        result["debug"] = {
+            "html_length": len(r.text),
+            "html_preview": r.text[:500]
+        }
+    
+    return result
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
