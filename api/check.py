@@ -1,14 +1,14 @@
 import os
 import json
+from http.server import BaseHTTPRequestHandler
 import requests
 from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
-from http.server import BaseHTTPRequestHandler
 
 LOG_FILE = "/tmp/was_available.txt"
 
-def read_log() -> bool:
+def read_log():
     """Читает состояние наличия товара из файла."""
     try:
         with open(LOG_FILE, "r") as f:
@@ -20,7 +20,7 @@ def read_log() -> bool:
         print(f"Ошибка чтения файла {LOG_FILE}: {e}")
         return False
 
-def write_log(value: bool):
+def write_log(value):
     """Записывает состояние наличия товара в файл."""
     try:
         with open(LOG_FILE, "w") as f:
@@ -91,15 +91,21 @@ def check_availability():
         "statusText": availability_text
     }
 
-# Vercel serverless function handler
-def handler(event, context):
-    """Main handler for Vercel serverless function"""
-    result = check_availability()
-    
-    return {
-        'statusCode': 200,
-        'headers': {
-            'Content-Type': 'application/json'
-        },
-        'body': json.dumps(result)
-    }
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            result = check_availability()
+            
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            
+            response_body = json.dumps(result, ensure_ascii=False)
+            self.wfile.write(response_body.encode('utf-8'))
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            
+            error_response = json.dumps({"error": str(e)}, ensure_ascii=False)
+            self.wfile.write(error_response.encode('utf-8'))
