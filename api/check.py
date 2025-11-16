@@ -1,9 +1,10 @@
 import os
+import json
 import requests
 from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
-from fastapi import FastAPI
+from http.server import BaseHTTPRequestHandler
 
 LOG_FILE = "/tmp/was_available.txt"
 
@@ -49,7 +50,7 @@ def send_email(product_url):
     except Exception as e:
         print(f"Ошибка при отправке email: {e}")
 
-def handler():
+def check_availability():
     product_url = "https://kaspi.kz/shop/p/ehrmann-puding-vanil-bezlaktoznyi-1-5-200-g-102110634/?c=750000000"
     SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 
@@ -90,9 +91,15 @@ def handler():
         "statusText": availability_text
     }
 
-app = FastAPI()
-
-@app.get("/api/check")
-def check_api():
-    """Эндпоинт для проверки наличия товара на Kaspi."""
-    return handler()
+# Vercel serverless function handler
+def handler(event, context):
+    """Main handler for Vercel serverless function"""
+    result = check_availability()
+    
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Content-Type': 'application/json'
+        },
+        'body': json.dumps(result)
+    }
